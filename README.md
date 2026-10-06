@@ -1,12 +1,11 @@
 # TaskFlow — Full-Stack Kanban Task Manager
 
 [![CI](https://github.com/YOUR_GITHUB_USERNAME/taskflow/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_GITHUB_USERNAME/taskflow/actions)
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Open%20App-brightgreen)](YOUR_LIVE_DEMO_URL)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Open%20App-brightgreen)](https://taskflow-61mu.onrender.com)
 
 A production-oriented full-stack Kanban task manager built with **React + TypeScript**, **Flask**, and **PostgreSQL**. It includes JWT authentication, drag-and-drop task management, search, filtering, dashboard statistics, Docker deployment, CI/CD, and browser-level E2E testing.
 
-> **Live demo:** YOUR_LIVE_DEMO_URL  
-> Replace the placeholder above after deployment.
+> **Live demo:** https://taskflow-61mu.onrender.com
 
 ## Highlights
 
