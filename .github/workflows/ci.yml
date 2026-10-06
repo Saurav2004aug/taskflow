@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend tests (PostgreSQL 16)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: taskflow_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/taskflow_test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+
+  frontend:
+    name: Frontend typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  e2e:
+    name: End-to-end (real browser, full stack)
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: taskflow
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Start the app (gunicorn serving API + built UI)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/taskflow
+          JWT_SECRET: ci-only-secret-not-used-anywhere-else
+          AUTH_RATE_CAPACITY: "1000"   # the suite signs up many users from one IP
+          FRONTEND_DIST: ${{ github.workspace }}/frontend/dist
+        run: |
+          pip install -r requirements.txt
+          nohup gunicorn --workers 2 --bind 127.0.0.1:5000 wsgi:app > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:5000/health && break; sleep 1; done
+      - name: Run Playwright
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5000
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+      - name: Server log
+        if: always()
+        run: cat backend/server.log || true
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t taskflow .
+      - name: Smoke-test the container against Postgres
+        run: |
+          docker network create tf
+          docker run -d --name db --network tf -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=taskflow postgres:16-alpine
+          for i in $(seq 1 30); do docker exec db pg_isready -U postgres && break; sleep 1; done
+          docker run -d --name app --network tf -p 8000:8000 \
+            -e DATABASE_URL=postgresql://postgres:pw@db:5432/taskflow -e JWT_SECRET=smoke-test-secret taskflow
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8000/health && break; sleep 1; done
+          curl -fs http://127.0.0.1:8000/ | grep -q '<div id="root">'
+          curl -fs -X POST http://127.0.0.1:8000/api/auth/register -H 'Content-Type: application/json' \
+            -d '{"name":"CI","email":"ci@example.com","password":"ci-password-1"}' | grep -q token
+      - name: Container logs
+        if: always()
+        run: docker logs app || true

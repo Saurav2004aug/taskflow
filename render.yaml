@@ -1,0 +1,22 @@
+# Render Blueprint: one click creates the web service AND the Postgres database.
+# Render dashboard -> New -> Blueprint -> pick this repo.
+services:
+  - type: web
+    name: taskflow
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: taskflow-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true      # Render generates a strong random secret
+      - key: TRUSTED_PROXIES
+        value: "1"               # real client IPs for per-IP rate limiting
+
+databases:
+  - name: taskflow-db
+    plan: free
+    postgresMajorVersion: "16"

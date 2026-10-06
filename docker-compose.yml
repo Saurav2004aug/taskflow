@@ -1,0 +1,30 @@
+# One command runs the whole stack locally:  docker compose up --build
+# Then open http://localhost:8000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: taskflow
+      POSTGRES_USER: taskflow
+      POSTGRES_PASSWORD: taskflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskflow -d taskflow"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://taskflow:taskflow@db:5432/taskflow
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret-change-me-in-production}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
